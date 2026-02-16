@@ -8,17 +8,12 @@ Created on Sun Sep 17 12:27:38 2023
 import sys
 import os
 
-path2 = ['C:/Users/yuriy/Desktop/stuff/RNN_stuff/',
-         'C:/Users/ys2605/Desktop/stuff/RNN_stuff/',
-         'C:/Users/shymk/Desktop/stuff/RNN_stuff/']
+for user1 in ['ys2605', 'shymk']:
+    if os.path.isdir('C:/Users/' + user1):
+        path1 = 'C:/Users/' + user1 + '/Desktop/stuff/RNN_scripts/'
 
-for path3 in path2:
-    if os.path.isdir(path3):
-        path1 = path3;
-
-#sys.path.append('C:\\Users\\ys2605\\Desktop\\stuff\\mesto\\');
-#sys.path.append('/Users/ys2605/Desktop/stuff/RNN_stuff/RNN_scripts');
-sys.path.append(path1 + 'RNN_scripts');
+sys.path.append(path1)
+sys.path.append(path1 + '/functions')
 
 from f_analysis import *
 from f_RNN import *
@@ -33,7 +28,7 @@ import matplotlib.cm as cm
 
 
 #%%
-
+data_path = 'F:/RNN_stuff/RNN_data/'
 
 flist = [#'oddball2_1ctx_20000trainsamp_25neurons_ReLU_20trials_50stim_100batch_0.0010lr_2023_8_14_13h_42m_RNN',
          'oddball2_1ctx_80000trainsamp_25neurons_ReLU_20trials_50stim_100batch_0.0010lr_2023_8_16_18h_48m_RNN',
@@ -67,9 +62,9 @@ tau_all = np.zeros((num_files))
 for n_fil in range(num_files):
 
 
-    params = np.load(path1 + '/RNN_data/' + flist[n_fil][:-4] + '_params.npy', allow_pickle=True).item()
+    params = np.load(data_path + flist[n_fil][:-4] + '_params.npy', allow_pickle=True).item()
     
-    train_out = np.load(path1 + '/RNN_data/' + flist[n_fil][:-4] + '_train_out.npy', allow_pickle=True).item()
+    train_out = np.load(data_path + flist[n_fil][:-4] + '_train_out.npy', allow_pickle=True).item()
     
     tau_all[n_fil] = params['tau']
     param_all.append(params)

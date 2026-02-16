@@ -8,17 +8,12 @@ Created on Thu Aug 19 15:33:58 2021
 import sys
 import os
 
-path2 = ['C:/Users/yuriy/Desktop/stuff/RNN_stuff/',
-         'C:/Users/ys2605/Desktop/stuff/RNN_stuff/',
-         'C:/Users/shymk/Desktop/stuff/RNN_stuff/']
+for user1 in ['ys2605', 'shymk']:
+    if os.path.isdir('C:/Users/' + user1):
+        path1 = 'C:/Users/' + user1 + '/Desktop/stuff/RNN_scripts/'
 
-for path3 in path2:
-    if os.path.isdir(path3):
-        path1 = path3;
-
-#sys.path.append('C:\\Users\\ys2605\\Desktop\\stuff\\mesto\\');
-#sys.path.append('/Users/ys2605/Desktop/stuff/RNN_stuff/RNN_scripts');
-sys.path.append(path1 + 'RNN_scripts')
+sys.path.append(path1)
+sys.path.append(path1 + '/functions')
 
 from f_RNN import f_RNN_trial_ctx_train2, f_RNN_trial_freq_train2 #, f_plot_rnn_weights#, f_trial_ave_pad
 from f_RNN_chaotic import RNN_chaotic
@@ -35,12 +30,13 @@ from datetime import datetime
 
 
 #%%
+data_path = 'F:/RNN_stuff/RNN_data/'
 
-new_train = 1
+new_train = 0
 
-load_fname = 'oddball2_1ctx_80000trainsamp_25neurons_ReLU_500tau_50dt_20trials_50stim_100batch_1e-03lr_2023_10_5_10h_54m_RNN'
+load_fname = 'oddball2_1ctx_40000trainsamp_75neurons_ReLU_50tau_5dt_20trials_50stim_100batch_1e-04lr_linit0_noise1_2024_6_3_11h_40m_RNN'
 
-train_num_samples = round(2e5)
+train_num_samples = round(5e4)
 
 #%% input params
 
@@ -56,11 +52,11 @@ if new_train:
               'num_ctx':                        1,
               'oddball_stim':                   np.arange(50)+1, # np.arange(10)+1, #[3, 6], #np.arange(10)+1,
               'dd_frac':                        0.1,
-              'dt':                             0.05,
+              'dt':                             0.005,
               
               'train_batch_size':               100,
               'train_trials_in_sample':         20,
-              'train_num_samples':              round(2e5),
+              'train_num_samples':              round(5e4),
               'train_loss_weights':             [0.05, 0.95], # isi, red, dd [1e-5, 1e-5, 1] [0.05, 0.05, 0.9], [0.05, 0.95]  [1/.5, 1/.45, 1/0.05]
               'train_add_noise':                1,               # sqrt(2*dt/tau*sigma_req^2) * norm(0,1); can be true false or a float, which will change the magnitude of noise
     
@@ -70,10 +66,13 @@ if new_train:
               'input_size':                     50,
               'hidden_size':                    75,            # number of RNN neurons
               'g':                              1,  # 1            # recurrent connection strength 
-              'tau':                            .5,
-              'learning_rate':                  2e-3,           # 0.005
+              'tau':                            .05,
+              'learning_rate':                  1e-4,           # 0.005
+              'cosine_anneal':                  False,
               'activation':                     'ReLU',             # ReLU tanh
               'normalize_input':                False,
+              'init_rate_learn':                False,
+              'init_rate_dist':                 'xavier uniform', # Normal, Uniform, xavier uniform
               
               'stim_t_std':                     3,              # 3 or 0
               'input_noise_std':                1/100,
@@ -82,9 +81,9 @@ if new_train:
               'train_date':                     now1,
               }
 else:
-    train_out = np.load(path1 + '/RNN_data/' + load_fname[:-4] + '_train_out.npy', allow_pickle=True).item()
+    train_out = np.load(data_path + load_fname[:-4] + '_train_out.npy', allow_pickle=True).item()
     
-    params = np.load(path1 + '/RNN_data/' + load_fname[:-4] + '_params.npy', allow_pickle=True).item()
+    params = np.load(data_path + load_fname[:-4] + '_params.npy', allow_pickle=True).item()
     
     params['train_date_ext'] = now1
     
@@ -94,6 +93,13 @@ else:
 
 #torch.get_num_threads()
 torch.set_num_threads(8)
+
+# some idead from sean
+# gradient norm clipping
+# initialize with orthogonal weight matrix
+# learn the initialization distribution parameter
+
+
 
 #%%
 
@@ -111,7 +117,13 @@ if 'train_loss_weights' not in params.keys():
 
 if 'device' not in params.keys():
     params['device'] = 'cpu'
-    
+
+if 'cosine_anneal' not in params.keys():
+    params['cosine_anneal'] = False
+
+if 'learn_init' not in params.keys():
+    params['learn_init'] = False
+
 name_tag1, name_tag2 = f_gen_name_tag(params)
 
 name_tag  = name_tag1 + '_' + name_tag2
@@ -131,12 +143,16 @@ output_size_ctx = params['num_ctx'] + 1
 hidden_size = params['hidden_size'];
 alpha = params['dt']/params['tau'];         
 
-rnn = RNN_chaotic(params['input_size'], params['hidden_size'], output_size, output_size_ctx, alpha, params['train_add_noise'], activation=params['activation']).to(params['device'])
+params['output_size'] = params['num_freq_stim'] + 1
+params['output_size_ctx'] = params['num_ctx'] + 1
+
+
+rnn = RNN_chaotic(params).to(params['device']) # params['input_size'], params['hidden_size'], output_size, output_size_ctx, alpha, params['train_add_noise'], activation=params['activation']
 
 if new_train:
     rnn.init_weights(params['g'])
 else:
-    rnn.load_state_dict(torch.load(path1 + '/RNN_data/' + load_fname))
+    rnn.load_state_dict(torch.load(data_path + load_fname))
     
     figs = f_plot_train_loss(train_out, name_tag1, name_tag2)
 
@@ -188,10 +204,10 @@ figs = f_plot_train_loss(train_out, name_tag1, name_tag2)
 #%% saving
 
 print('Saving RNN %s' % fname_RNN_save)
-torch.save(rnn.state_dict(), path1 + '/RNN_data/' + fname_RNN_save  + '_RNN')
-np.save(path1 + '/RNN_data/' + fname_RNN_save + '_params.npy', params) 
-np.save(path1 + '/RNN_data/' + fname_RNN_save + '_train_out.npy', train_out) 
+torch.save(rnn.state_dict(), data_path + fname_RNN_save  + '_RNN')
+np.save(data_path + fname_RNN_save + '_params.npy', params) 
+np.save(data_path + fname_RNN_save + '_train_out.npy', train_out) 
 
 for key1 in figs.keys():
-    figs[key1].savefig(path1 + '/RNN_data/' + fname_RNN_save + '_' + key1 + '.png', dpi=1200)
+    figs[key1].savefig(data_path + fname_RNN_save + '_' + key1 + '.png', dpi=1200)
 

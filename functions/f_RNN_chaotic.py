@@ -13,31 +13,60 @@ import torch.nn as nn
 #%%
 
 class RNN_chaotic(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size_freq, output_size_ctx, alpha, add_noise, activation='tanh'): # 
+    def __init__(self, params): # 
+        # input_size, hidden_size, output_size_freq, output_size_ctx, alpha, add_noise, activation='tanh'
+    
         super(RNN_chaotic, self).__init__()
         
-        self.add_noise = float(add_noise)
-        self.hidden_size = hidden_size
-        self.input_size = input_size
-        self.output_size = output_size_freq
-        self.output_size_ctx = output_size_ctx
-        self.alpha = alpha
-        self.i2h = nn.Linear(input_size, hidden_size)   #, device=self.device
-        self.h2h = nn.Linear(hidden_size, hidden_size)  #, device=self.device
-        self.h2o = nn.Linear(hidden_size, output_size_freq) #, device=self.device
-        self.h2o_ctx = nn.Linear(hidden_size, output_size_ctx)
+        self.add_noise = float(params['train_add_noise'])
+        self.hidden_size = params['hidden_size']
+        self.input_size = params['input_size']
+        self.output_size = params['output_size']
+        self.output_size_ctx = params['output_size_ctx']
+        self.alpha = params['dt']/params['tau']
+        self.sigma_rec = params['g']/np.sqrt(self.hidden_size)
+        if 'init_rate_dist' in params.keys():
+            self.init_rate_dist = params['init_rate_dist']
+            
+            if self.init_rate_dist == 'Normal':
+                if self.init_rate_learn:
+                    self.init_dist_mu = nn.Parameter(torch.tensor(0).float(), requires_grad=True) # , requires_grad=True
+                    self.init_dist_std = nn.Parameter(torch.tensor(1).float(), requires_grad=True)
+                else:
+                    self.init_dist_mu = nn.Parameter(torch.tensor(0).float(), requires_grad=False) # , requires_grad=True
+                    self.init_dist_std = nn.Parameter(torch.tensor(1).float(), requires_grad=False)
+            elif self.init_rate_dist == 'Uniform':
+                if self.init_rate_learn:
+                    self.init_dist_a = nn.Parameter(torch.tensor(-1).float(), requires_grad=True)
+                    self.init_dist_b = nn.Parameter(torch.tensor(1).float(), requires_grad=True)
+                    #self.register_parameter(name='init_dist_x', param=nn.Parameter(torch.tensor(-1).float()))
+                else:
+                    self.init_dist_a = nn.Parameter(torch.tensor(-1).float(), requires_grad=False)
+                    self.init_dist_b = nn.Parameter(torch.tensor(1).float(), requires_grad=False)
+            
+        if 'init_rate_learn' in params.keys():
+            self.init_rate_learn = params['init_rate_learn']
+        
+        self.i2h = nn.Linear(self.input_size, self.hidden_size)   #, device=self.device
+        self.h2h = nn.Linear(self.hidden_size, self.hidden_size)  #, device=self.device
+        self.h2o = nn.Linear(self.hidden_size, self.output_size) #, device=self.device
+        self.h2o_ctx = nn.Linear(self.hidden_size, self.output_size_ctx)
         self.softmax = nn.LogSoftmax(dim=0)
-        if activation == 'tanh':
+            
+        if params['activation'] == 'tanh':
             self.activ = nn.Tanh()
-        elif activation == 'ReLU':
+        elif  params['activation'] == 'ReLU':
             self.activ = nn.ReLU()
+            
             
         #self.sigmoid = nn.Sigmoid()
         
     def init_weights(self, g):
         
-        std1 = g/np.sqrt(self.hidden_size);
-        self.sigma_rec = std1
+        #std1 = g/np.sqrt(self.hidden_size);
+        #self.sigma_rec = std1
+        
+        std1 = self.sigma_rec
         
         # recurrent
         wh2h = self.h2h.weight.data
@@ -73,7 +102,15 @@ class RNN_chaotic(nn.Module):
     
     def init_rate(self, batch_size=1):
         rate = torch.empty((batch_size, self.hidden_size)) # , device=self.device
-        nn.init.uniform_(rate, a=-1, b=1)
+        try:
+            if self.init_rate_dist.lower() == 'normal':
+                nn.init.normal(rate, mean=self.init_dist_mu.item(), std=self.init_dist_std.item())
+            elif self.init_rate_dist.lower() == 'uniform':
+                nn.init.uniform_(rate, a=self.init_dist_a.item(), b=self.init_dist_b.item())
+            elif self.init_rate_dist.lower() == 'xavier uniform'.lower():
+                nn.init.xavier_uniform_(rate)
+        except:
+            nn.init.uniform_(rate, a=-1, b=1)
         return rate
         
     def recurrence(self, input_sig, rate):

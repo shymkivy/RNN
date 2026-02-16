@@ -8,9 +8,11 @@ Created on Fri Dec 31 14:55:50 2021
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
-from random import sample, random
+#from random import sample, random
 
 from sklearn.decomposition import PCA
+from scipy.spatial.distance import pdist, squareform
+from scipy.cluster.hierarchy import linkage
 
 #%% for getting sorting order from linkage
 def seriation(Z,N,cur_index):
@@ -30,7 +32,21 @@ def seriation(Z,N,cur_index):
         left = int(Z[cur_index-N,0])
         right = int(Z[cur_index-N,1])
         return (seriation(Z,N,left) + seriation(Z,N,right))
+
+def f_hclust_firing_rates(data, standardize=True, metric='cosine', method='average'):
     
+    if standardize:
+        data_s = (data - np.mean(data, axis=1)[:,None])/np.std(data, axis=1)[:,None]
+    else:
+        data_s = data
+
+    flat_dist_met = pdist(data_s, metric=metric);
+    cs = 1- squareform(flat_dist_met);
+    dist_linkage = linkage(flat_dist_met, method=method)
+    N = len(cs)
+    res_ord = seriation(dist_linkage,N, N + N -2)
+    
+    return res_ord
     
 #%%
 
@@ -175,7 +191,6 @@ def f_plot_rates_only(rnn_data, title_tag = '', num_plot_batches = 1, num_plot_c
     
     #rates = test_spont['rates']
     
-    
     T, batch_size, num_cells = rates.shape
     
     rates2 = rates[start_from:,:,:]
@@ -184,18 +199,17 @@ def f_plot_rates_only(rnn_data, title_tag = '', num_plot_batches = 1, num_plot_c
     
     stds1 = np.std(rates2, axis=0)
     
+    # plt.figure()
+    # plt.plot(means1)
+    # plt.xlabel('batches')
+    # plt.ylabel('mean magnitude')
+    # plt.title('cell means across batches')
     
-    plt.figure()
-    plt.plot(means1)
-    plt.xlabel('batches')
-    plt.ylabel('mean magnitude')
-    plt.title('cell means across batches')
-    
-    plt.figure()
-    plt.plot(stds1)
-    plt.xlabel('batches')
-    plt.ylabel('std magnitude')
-    plt.title('cell stds across batches')
+    # plt.figure()
+    # plt.plot(stds1)
+    # plt.xlabel('batches')
+    # plt.ylabel('std magnitude')
+    # plt.title('cell stds across batches')
     
     
     # plt.figure()
@@ -229,6 +243,19 @@ def f_plot_rates_only(rnn_data, title_tag = '', num_plot_batches = 1, num_plot_c
             shift = n_plt    
             plt.plot(rates3n[:,plot_cells[n_plt]]+shift)
         plt.title('%s; batch %d; example cells' % (title_tag, bt))
+        
+        
+        pca = PCA(n_components=2)
+        pca.fit(rates3)
+        pcs = pca.transform(rates3)
+        
+        plt.figure()
+        plt.plot(pcs[:2000,0], pcs[:2000,1])
+        plt.title('%s; batch %d; PC space' % (title_tag, bt))
+        plt.xlabel('PC1')
+        plt.ylabel('PC2')
+        
+        
         
 #%%
 

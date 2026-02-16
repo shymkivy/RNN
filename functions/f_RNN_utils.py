@@ -542,6 +542,12 @@ def f_gen_name_tag(params, save_tag=''):
     else:
         act_tag = ''
     
+    cos_tag = ''
+    if 'cosine_anneal' not in params.keys():
+        params['cosine_anneal'] = False
+        cos_tag = '_cosan%d' %  params['cosine_anneal']
+
+    
     if 'train_num_samples' in params.keys():
         num_samples = params['train_num_samples']
     else:
@@ -556,7 +562,7 @@ def f_gen_name_tag(params, save_tag=''):
     name_tag1 = '%s%s_%dctx_%dtrainsamp_%dneurons_%s_%dtau_%ddt' % (save_tag, params['train_type'], params['num_ctx'],
                 num_samples, params['hidden_size'], act_tag, params['tau']*1000, params['dt']*1000)
 
-    name_tag2 = '%dtrials_%dstim_%dbatch_%.0elr_noise%d%s%s' % (params['train_trials_in_sample'], params['num_freq_stim'], params['train_batch_size'], params['learning_rate'], params['train_add_noise'], date_tag, date_tag_ext)
+    name_tag2 = '%dtrials_%dstim_%dbatch_%.0elr%s_linit%d_noise%d%s%s' % (params['train_trials_in_sample'], params['num_freq_stim'], params['train_batch_size'], params['learning_rate'], cos_tag, params['learn_init'], params['train_add_noise'], date_tag, date_tag_ext)
     
     return name_tag1, name_tag2
 
@@ -702,10 +708,7 @@ def f_plot_freq_space_distances_oddball(rates_in, trial_types_ctx, red_dd_seq, p
             
             num_bins3, num_trials3, num_runs3, num_cells3 = rates1.shape
             
-            
-            
             resp_all3 = np.zeros((num_freqs, num_cells3))
-            
             
             for n_freq in range(len(freqs1)):
                 freq1 = freqs1[n_freq]

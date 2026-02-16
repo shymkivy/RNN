@@ -8,17 +8,13 @@ Created on Thu Aug 19 15:33:58 2021
 import sys
 import os
 
-path2 = ['C:/Users/yuriy/Desktop/stuff/RNN_stuff/',
-         'C:/Users/ys2605/Desktop/stuff/RNN_stuff/',
-         'C:/Users/shymk/Desktop/stuff/RNN_stuff/']
+for user1 in ['ys2605', 'shymk']:
+    if os.path.isdir('C:/Users/' + user1):
+        path1 = 'C:/Users/' + user1 + '/Desktop/stuff/RNN_scripts/'
 
-for path3 in path2:
-    if os.path.isdir(path3):
-        path1 = path3;
+sys.path.append(path1)
+sys.path.append(path1 + '/functions')
 
-#sys.path.append('C:\\Users\\ys2605\\Desktop\\stuff\\mesto\\');
-#sys.path.append('/Users/ys2605/Desktop/stuff/RNN_stuff/RNN_scripts');
-sys.path.append(path1 + 'RNN_scripts')
 
 import time
 
@@ -110,6 +106,8 @@ params['train_date'] = now1
 
 #%%
 
+data_path = 'F:/RNN_stuff/RNN_data/'
+
 #fname_RNN_load = 'test_20k_std3'
 #fname_RNN_load = '50k_20stim_std3';
 
@@ -162,7 +160,7 @@ fname_RNN_load = 'oddball2_1ctx_80000trainsamp_25neurons_ReLU_500tau_50dt_20tria
 
 #%%
 if load_RNN:
-    params = np.load(path1 + '/RNN_data/' + fname_RNN_load[:-4] + '_params.npy', allow_pickle=True).item()
+    params = np.load(data_path + fname_RNN_load[:-4] + '_params.npy', allow_pickle=True).item()
 
 #%%
 
@@ -253,7 +251,7 @@ train_out = {}     # initialize outputs, so they are saved when process breaks
 #%%
 if load_RNN:
     print('Loading RNN %s' % fname_RNN_load)
-    rnn.load_state_dict(torch.load(path1 + '/RNN_data/' + fname_RNN_load))
+    rnn.load_state_dict(torch.load(data_path + fname_RNN_load))
 
 #%%
 if not load_RNN:
@@ -283,7 +281,7 @@ else:
     
 #%%
 if load_RNN:
-    train_out = np.load(path1 + '/RNN_data/' + fname_RNN_load[:-4] + '_train_out.npy', allow_pickle=True).item()
+    train_out = np.load(data_path + fname_RNN_load[:-4] + '_train_out.npy', allow_pickle=True).item()
 
 #%%
 #plt.close('all')
@@ -294,12 +292,12 @@ figs = f_plot_train_loss(train_out, name_tag1, name_tag2)
 #%%
 if not load_RNN:
     print('Saving RNN %s' % fname_RNN_save)
-    torch.save(rnn.state_dict(), path1 + '/RNN_data/' + fname_RNN_save  + '_RNN')
-    np.save(path1 + '/RNN_data/' + fname_RNN_save + '_params.npy', params) 
-    np.save(path1 + '/RNN_data/' + fname_RNN_save + '_train_out.npy', train_out) 
+    torch.save(rnn.state_dict(), data_path + fname_RNN_save  + '_RNN')
+    np.save(data_path + fname_RNN_save + '_params.npy', params) 
+    np.save(data_path + fname_RNN_save + '_train_out.npy', train_out) 
     
     for key1 in figs.keys():
-        figs[key1].savefig(path1 + '/RNN_data/' + fname_RNN_save + '_' + key1 + '.png', dpi=1200)
+        figs[key1].savefig(data_path + fname_RNN_save + '_' + key1 + '.png', dpi=1200)
 
 #%%
 params['device'] = 'cpu';
@@ -741,7 +739,7 @@ run_duration = time.time() - start_t
 print('done; %.2f sec' % run_duration)
 
 if 0:
-    preform1_train_test = np.load(path1 + '/RNN_data/decoder_data/' + '%s_%s_decoding_%s_postdd%d.npy' % (fname_RNN_save, dec_type1, train_test_method, post_dd1))
+    preform1_train_test = np.load(data_path + 'decoder_data/' + '%s_%s_decoding_%s_postdd%d.npy' % (fname_RNN_save, dec_type1, train_test_method, post_dd1))
 
 preform2_train_test = np.mean(preform1_train_test, axis=2)
 
@@ -804,7 +802,7 @@ elif train_test_method == 'test_at_stim':
 
 if 0:
 
-    np.save(path1 + '/RNN_data/decoder_data/' + '%s_%s_decoding_%s_postdd%d' % (fname_RNN_save, dec_type1, train_test_method, post_dd1), preform1_train_test)
+    np.save(data_path + 'decoder_data/' + '%s_%s_decoding_%s_postdd%d' % (fname_RNN_save, dec_type1, train_test_method, post_dd1), preform1_train_test)
 
 #%% prelim decoder ob trial ave
 # plt.close('all')
@@ -2607,7 +2605,7 @@ plt.ylabel('W input')
 
 if 0:
     print('Saving RNN %s' % fname_RNN_save)
-    plt.savefig(path1 + '/RNN_data/' + fname_RNN_save + 'win_fig.png', dpi=1200)
+    plt.savefig(data_path + fname_RNN_save + 'win_fig.png', dpi=1200)
 
 plt.figure()
 plt.imshow(w_r)
@@ -2618,7 +2616,7 @@ plt.ylabel('W recurrent')
 
 if 0:
     print('Saving RNN %s' % fname_RNN_save)
-    plt.savefig(path1 + '/RNN_data/' + fname_RNN_save + 'wr_fig.png', dpi=1200)
+    plt.savefig(data_path + fname_RNN_save + 'wr_fig.png', dpi=1200)
 
 plt.figure()
 plt.imshow(w_o, aspect='auto')
@@ -2629,7 +2627,7 @@ plt.ylabel('W output')
 
 if 0:
     print('Saving RNN %s' % fname_RNN_save)
-    plt.savefig(path1 + '/RNN_data/' + fname_RNN_save + 'wout_fig.png', dpi=1200)
+    plt.savefig(data_path + fname_RNN_save + 'wout_fig.png', dpi=1200)
 
 
 #%%
@@ -2647,7 +2645,7 @@ plt.ylabel('W input')
 
 if 0:
     print('Saving RNN %s' % fname_RNN_save)
-    plt.savefig(path1 + '/RNN_data/' + fname_RNN_save + 'winsort_fig.png', dpi=1200)
+    plt.savefig(data_path + fname_RNN_save + 'winsort_fig.png', dpi=1200)
 
 
 plt.figure()
@@ -2674,7 +2672,7 @@ plt.plot(w_in[:20,:].T)
 
 # if 0:
 #     print('Saving RNN %s' % fname_RNN_save)
-#     plt.savefig(path1 + '/RNN_data/' + fname_RNN_save + 'wrsort_fig.png', dpi=1200)
+#     plt.savefig(data_path + fname_RNN_save + 'wrsort_fig.png', dpi=1200)
 
 
 # #%%

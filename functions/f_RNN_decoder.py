@@ -14,7 +14,7 @@ from scipy import linalg
 
 import matplotlib.pyplot as plt
 #from matplotlib import gridspec
-import matplotlib.patches as patches
+from matplotlib.patches import Rectangle
 
 #%% decoder make cross validation groups
 
@@ -39,64 +39,54 @@ def f_make_cv_groups(num_trials, num_cv_groups):
 def f_sample_trial_data_dec(rates_in, stim_loc, trial_types):
     
     num_dec = len(rates_in)
-    trial_len, num_trials, num_batch, num_neurons = rates_in[0].shape
     num_tt = len(trial_types)
     
     # fiirst sample stim
-
-    dd_red_samp_rates = np.zeros((trial_len, num_tt, num_batch, num_neurons, num_dec))
-        
-    has_data = np.ones((num_batch), dtype=bool)
+    rates_out = []
     
-    for n_run in range(num_batch):
+    for n_dec in range(num_dec):
         
-        run_data1 = stim_loc[:,n_run]
+        trial_len, num_trials, num_batch, num_neurons = rates_in[n_dec].shape
         
-        tt_loc_all = np.zeros(num_tt, dtype=int)
-        for n_tt in range(num_tt):
-            tt_loc = np.where(run_data1 == trial_types[n_tt])[0]
-            if tt_loc.shape[0]:
-                tt_loc_all[n_tt] = np.random.choice(tt_loc, 1)[0]
-            else:
-                has_data[n_run] = 0
-
+        dd_red_samp_rates = np.zeros((trial_len, num_tt, num_batch, num_neurons))
+        has_data = np.ones((num_batch), dtype=bool)
         
-        if has_data[n_run]:
-            for n_dec in range(num_dec):
+        for n_run in range(num_batch):
+            
+            run_data1 = stim_loc[:,n_run]
+            
+            tt_loc_all = np.zeros(num_tt, dtype=int)
+            for n_tt in range(num_tt):
+                tt_loc = np.where(run_data1 == trial_types[n_tt])[0]
+                if tt_loc.shape[0]:
+                    tt_loc_all[n_tt] = np.random.choice(tt_loc, 1)[0]
+                else:
+                    has_data[n_run] = 0
+    
+            if has_data[n_run]:
                 for n_tt in range(num_tt):
-                    dd_red_samp_rates[:, n_tt, n_run, :, n_dec] = rates_in[n_dec][:, tt_loc_all[n_tt], n_run, :]
+                    dd_red_samp_rates[:, n_tt, n_run, :] = rates_in[n_dec][:, tt_loc_all[n_tt], n_run, :]
             
         
-    dd_red_samp_rates2 = dd_red_samp_rates[:,:,has_data,:,:]
-    
-    dd_red_samp_rates3 = np.reshape(dd_red_samp_rates2, (trial_len, num_tt*num_batch, num_neurons, num_dec), order='F')
-    
-    rates_out = []
-    for n_dec in range(num_dec):
-        rates_out.append(dd_red_samp_rates3[:,:,:,n_dec])
+        dd_red_samp_rates2 = dd_red_samp_rates[:,:,has_data,:]
+        dd_red_samp_rates3 = np.reshape(dd_red_samp_rates2, (trial_len, num_tt*num_batch, num_neurons), order='F')
+        rates_out.append(dd_red_samp_rates3)
     
     # ctreate y
     num_train = np.sum(has_data)
     
     y_data_templ = np.reshape(np.arange(num_tt)+1, (num_tt,1), order='F')
     y_data = np.repeat(y_data_templ, num_train, axis=1)
-    
-    
     y_data2 = np.reshape(y_data, (num_tt*num_batch), order='F')
     
     return rates_out, y_data2
 
 #%%
 
-def f_run_binwise_dec(X_all, y_data, shuff_stim_type, train_test_method='diag', pca_var=1, num_cv=5, cond_bin=0):
+def f_run_binwise_dec(X_all, Y_all, train_test_method='diag', pca_var_frac=1, num_cv=5, fixed_time=0):
     num_dec = len(X_all)
     
     num_t_bins, num_trials, num_cells = X_all[0].shape
-
-    if len(shuff_stim_type):
-        shuff_stim_type2 = np.array(shuff_stim_type).astype(bool)
-    else:
-        shuff_stim_type2 = np.zeros(num_dec, dtype=bool)
 
     if train_test_method == 'full':
         train_t_idx = np.arange(num_t_bins)
@@ -104,12 +94,12 @@ def f_run_binwise_dec(X_all, y_data, shuff_stim_type, train_test_method='diag', 
     elif train_test_method == 'diag':
         train_t_idx = np.arange(num_t_bins)
         test_t_idx = np.arange(num_t_bins).reshape((num_t_bins,1))
-    elif train_test_method == 'train_at_stim':
-        train_t_idx = (np.ones(1) * cond_bin).astype(int)
+    elif train_test_method == 'fixed_train_time':
+        train_t_idx = (np.ones(1) * fixed_time).astype(int)
         test_t_idx = np.arange(num_t_bins)
-    elif train_test_method == 'test_at_stim':
+    elif train_test_method == 'fixed_test_time':
         train_t_idx = np.arange(num_t_bins)
-        test_t_idx = (np.ones(num_t_bins) * cond_bin).astype(int)
+        test_t_idx = (np.ones(num_t_bins) * fixed_time).astype(int)
 
     preform1_train_test = np.zeros((train_t_idx.shape[0], test_t_idx[0].shape[0], num_cv, num_dec))
 
@@ -118,26 +108,20 @@ def f_run_binwise_dec(X_all, y_data, shuff_stim_type, train_test_method='diag', 
     for n_dec in range(num_dec):
         X_use = X_all[n_dec]
 
-        if pca_var < 1 and pca_var !=0:
+        if pca_var_frac < 1 and pca_var_frac !=0:
             
             X_use2d = np.reshape(X_use, (num_t_bins*num_trials, num_cells), order = 'F')
             
             U, S, Vh = linalg.svd(X_use2d, full_matrices=False)
             cum_var = np.cumsum(S**2/np.sum(S**2))
-            comp_include_idx = np.where(cum_var > pca_var)[0][0]+1
+            comp_include_idx = np.where(cum_var > pca_var_frac)[0][0]+1
             #X_rec = np.dot(U, Vh*S[:, None])
             X_LD2d = np.dot(X_use2d, Vh.T)
             X_use2 = np.reshape(X_LD2d[:,:comp_include_idx], (num_t_bins, num_trials, comp_include_idx), order = 'F')
         else:
             X_use2 = X_use
             
-        
-        if shuff_stim_type2[n_dec]:
-            y_idx = np.arange(y_data.shape[0])
-            np.random.shuffle(y_idx)
-            y_data2 = y_data[y_idx]
-        else:
-            y_data2 = y_data
+        y_data2 = Y_all[n_dec]
         
         for n_tr in range(train_t_idx.shape[0]): # 
             print('dec %d of %d; train iter %d/%d' % (n_dec+1, num_dec, n_tr, train_t_idx.shape[0]))    
@@ -169,17 +153,24 @@ def f_run_binwise_dec(X_all, y_data, shuff_stim_type, train_test_method='diag', 
     
     return preform2_train_test
 
+def f_shuffle_trials(trials):
+    trials_idx = np.arange(trials.shape[0])
+    np.random.shuffle(trials_idx)
+    trials_shuff = trials[trials_idx]
+    
+    return trials_shuff
+
 #%%
 
-def f_plot_binwise_dec(preform2_train_test, plot_t1, leg1, train_test_method='diag', plt_start=-1, plot_end=5, plot_cont=0.25, title_tag=''):
+def f_plot_binwise_dec(preform2_train_test, train_test_method='diag', plot_t=None, plot_legend=None, plt_start=-1, plot_end=5, fixed_time=0.25, title_tag=''):
     
     num_t, _, num_dec = preform2_train_test.shape
     
-    plt_start2 = np.argmin(np.abs(plt_start - plot_t1))
-    plt_end2 = np.argmin(np.abs(plot_end - plot_t1))
-    plot_cond2 = np.argmin(np.abs(plot_cont - plot_t1))
+    plt_start2 = np.argmin(np.abs(plt_start - plot_t))
+    plt_end2 = np.argmin(np.abs(plot_end - plot_t))
+    plot_cond2 = np.argmin(np.abs(fixed_time - plot_t))
 
-    plot_t2 = plot_t1[plt_start2:plt_end2]
+    plot_t2 = plot_t[plt_start2:plt_end2]
     
     if len(title_tag):
         title_tag2 = '%s\n' % title_tag
@@ -196,14 +187,14 @@ def f_plot_binwise_dec(preform2_train_test, plot_t1, leg1, train_test_method='di
             plt.xlabel('test time')
             plt.ylabel('train time')
             if len(title_tag):
-                plt.title('%s\n%s' % (title_tag, leg1[n_dec]))
+                plt.title('%s\n%s' % (title_tag, plot_legend[n_dec]))
             else:
-                plt.title(leg1[n_dec])
+                plt.title(plot_legend[n_dec])
 
         plt.figure()
         for n_dec in range(num_dec):
             plt.plot(plot_t2, np.diag(preform2_train_test[plt_start2:plt_end2,plt_start2:plt_end2,n_dec]))
-        plt.legend(leg1)
+        plt.legend(plot_legend)
         plt.xlabel('time (sec)')
         plt.ylabel('performance')
         plt.title('%sbinwise, %s' % (title_tag2, train_test_method))
@@ -211,39 +202,39 @@ def f_plot_binwise_dec(preform2_train_test, plot_t1, leg1, train_test_method='di
         plt.figure()
         for n_dec in range(num_dec):
             plt.plot(plot_t2, preform2_train_test[plot_cond2,plt_start2:plt_end2,n_dec])
-        plt.legend(leg1)
+        plt.legend(plot_legend)
         plt.xlabel('time (sec)')
         plt.ylabel('performance')
-        plt.title('%sbinwise, %s, train at %.2fsec, test variable' % (title_tag2, train_test_method, plot_t1[plot_cond2]))
+        plt.title('%sbinwise, %s, train at %.2fsec, test variable' % (title_tag2, train_test_method, plot_t[plot_cond2]))
         
         plt.figure()
         for n_dec in range(num_dec):
             plt.plot(plot_t2, preform2_train_test[plt_start2:plt_end2,plot_cond2,n_dec])
-        plt.legend(leg1)
+        plt.legend(plot_legend)
         plt.xlabel('time (sec)')
         plt.ylabel('performance')
-        plt.title('%sbinwise, %s, train variable, test at %.2fsec' % (title_tag2, train_test_method, plot_t1[plot_cond2]))
+        plt.title('%sbinwise, %s, train variable, test at %.2fsec' % (title_tag2, train_test_method, plot_t[plot_cond2]))
         
     elif train_test_method == 'diag':
         
         plt.figure()
         for n_dec in range(num_dec):
             plt.plot(plot_t2, preform2_train_test[plt_start2:plt_end2,:,n_dec])
-        plt.legend(leg1)
+        plt.legend(plot_legend)
         plt.xlabel('time (sec)')
         plt.ylabel('performance')
         plt.title('%sbinwise, %s' % (title_tag2, train_test_method))
         
-    elif train_test_method == 'train_at_stim':
+    elif train_test_method == 'fixed_train_time':
         1
-    elif train_test_method == 'test_at_stim':
+    elif train_test_method == 'fixed_test_time':
         1
 
 #%%
 def f_run_one_shot_dec(x_data, y_data, trial_stim_on=[], shuff_stim_type=[], shuff_bins=[], stim_on_train=True, num_cv=5, equalize_y_input=True):
     
     num_dec = len(x_data)
-    trial_len, num_trials, num_cells = x_data[0].shape
+    trial_len, num_trials, _ = x_data[0].shape
     
     # y_data_templ = np.zeros((trial_len, num_tt, 1), dtype=int, order = 'F')
     # for n_tt in range(num_tt):
@@ -290,6 +281,8 @@ def f_run_one_shot_dec(x_data, y_data, trial_stim_on=[], shuff_stim_type=[], shu
         cv_groups = f_make_cv_groups(num_trials, num_cv)
         
         x_data1 = x_data[n_dec]
+        
+        num_cells = x_data1.shape[2]
         
         if stim_on_train:
             x_train = x_data1[trial_stim_on,:,:]
@@ -409,7 +402,8 @@ def f_plot_one_shot_dec_bycat(perform_final, perform_binwise, perform_y_is_cat, 
             color1 = trial_colors[n_tt]
         else:
             color1 = trial_colors[n_tt,:]
-        ax1.add_patch(patches.Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor=color1, facecolor=color1, linewidth=1))
+            
+        ax1.add_patch(Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor=color1, facecolor=color1, linewidth=1))
         #ax1.plot(plot_t1, y_is_ddfin[:,0])
         for n_dec in range(num_dec):
             if num_cat > num_tt:
@@ -434,7 +428,7 @@ def f_plot_one_shot_dec_bycat(perform_final, perform_binwise, perform_y_is_cat, 
     
     plt.figure()
     ax3 = plt.subplot(1,1,1)
-    ax3.add_patch(patches.Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor='lightgray', facecolor='lightgray', linewidth=1))
+    ax3.add_patch(Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor='lightgray', facecolor='lightgray', linewidth=1))
     for n_dec in range(num_dec):
         ax3.plot(plot_t1, np.mean(perform_binwise[:,:,n_dec],axis=1))
     ax3.plot(plot_t1, np.ones(plot_t1.shape[0]), '--', color='black')
@@ -446,6 +440,89 @@ def f_plot_one_shot_dec_bycat(perform_final, perform_binwise, perform_y_is_cat, 
     #plt.legend(('deviant', 'redundant'))
     plt.legend(ax3.lines, leg_all2+ ['max', 'chance']) # ['actual'] + 
     plt.suptitle('stim type decoding, one shot train, %s' % (title_tag7))
+
+def f_plot_one_shot_dec_avecat(perform_final, perform_binwise, perform_y_is_cat, plot_t1, net_idx, leg_net):
+    #y_is_ddfin = np.mean(y_is_dd, axis=2)
+    #test_is_ddfin = test_is_cat_final[:,:,:,1]
+    trial_len, num_tt, num_cat, num_dec = perform_y_is_cat.shape
+    
+    colors1 = ['tab:blue', 'tab:orange', 'tab:green']
+    
+    if num_cat > num_tt:
+        title_tag7 = 'stim plus isi train'
+    else:
+        title_tag7 = 'stim on train'
+    
+    ylims = [-0.05, 1.05]
+    
+    # leg_all2 = []
+    # for n_dec in range(num_dec):
+    #     leg_all2.append('%s, %.1f%%' % (leg_all[n_dec], perform_final[n_dec]*100))
+    
+    leg_idx = np.array([np.where(net_idx==0)[0][0], np.where(net_idx==1)[0][0], np.where(net_idx==2)[0][0]]).astype(int)
+    
+    
+    perform_y_is_cat2 = np.zeros((trial_len, num_tt, num_dec))
+    for n_dec in range(num_dec):
+        for n_tt in range(num_tt):
+            if num_cat > num_tt:
+                n_cat = n_tt+1
+            else:
+                n_cat = n_tt
+            
+            perform_y_is_cat2[:,n_tt,n_dec] = perform_y_is_cat[:,n_tt, n_cat, n_dec]
+            
+    
+    perform_y_is_cat3 = np.mean(perform_y_is_cat2, axis=1)
+    
+    plt.figure()
+    ax1 = plt.subplot(1,1,1)
+    ax1.add_patch(Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor='lightgray', facecolor='lightgray', linewidth=1))
+    for n_dec in range(num_dec):
+        
+        ax1.plot(plot_t1, perform_y_is_cat3[:, n_dec], color=colors1[net_idx[n_dec]])
+    
+    plt.ylabel('stim probability')
+    plt.xlabel('time (sec)')
+    
+    # for n_dec in range(num_dec):
+    #     if num_cat > num_tt:
+    #         n_cat = n_tt+1
+    #     else:
+    #         n_cat = n_tt
+    #     ax1.plot(plot_t1, perform_y_is_cat[:,n_cat, n_dec])
+        
+    # for n_tt in range(num_tt):
+    #     ax1 = plt.subplot(1,num_tt,n_tt+1)
+    #     if type(trial_colors) == list:
+    #         color1 = trial_colors[n_tt]
+    #     else:
+    #         color1 = trial_colors[n_tt,:]
+            
+    #     ax1.add_patch(Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor=color1, facecolor=color1, linewidth=1))
+    #     #ax1.plot(plot_t1, y_is_ddfin[:,0])
+    #     for n_dec in range(num_dec):
+    #         if num_cat > num_tt:
+    #             n_cat = n_tt+1
+    #         else:
+    #             n_cat = n_tt
+    #         ax1.plot(plot_t1, perform_y_is_cat[:,n_tt,n_cat, n_dec])
+    #     plt.ylim(ylims)
+    #     if not n_tt:
+    #         plt.ylabel('stim probability')
+    #         plt.xlabel('time (sec)')
+    #     else:
+    #         plt.tick_params(axis='y', labelleft=False)
+        
+    #     if len(trial_labels):
+    #         label1 = trial_labels[n_tt]
+    #     else:
+    #         label1 = 'input %d' % n_tt
+    #     plt.title(label1)
+    #plt.legend(ax1.lines, leg_all) # ['actual'] + 
+    plt.legend(np.array(ax1.lines)[leg_idx], leg_net) # ['actual'] + 
+    plt.suptitle('stim type decoding, one shot train, %s' % (title_tag7))
+    
 
 def f_plot_one_shot_dec_bycat2(perform_final, perform_binwise, perform_y_is_cat, plot_t1, net_idx, leg_net, trial_labels, trial_colors):
     #y_is_ddfin = np.mean(y_is_dd, axis=2)
@@ -475,8 +552,10 @@ def f_plot_one_shot_dec_bycat2(perform_final, perform_binwise, perform_y_is_cat,
             color1 = trial_colors[n_tt]
         else:
             color1 = trial_colors[n_tt,:]
-        ax1.add_patch(patches.Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor=color1, facecolor=color1, linewidth=1))
+            
+        ax1.add_patch(Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor=color1, facecolor=color1, linewidth=1))
         #ax1.plot(plot_t1, y_is_ddfin[:,0])
+        
         for n_dec in range(num_dec):
             if num_cat > num_tt:
                 n_cat = n_tt+1
@@ -500,7 +579,7 @@ def f_plot_one_shot_dec_bycat2(perform_final, perform_binwise, perform_y_is_cat,
     
     plt.figure()
     ax3 = plt.subplot(1,1,1)
-    ax3.add_patch(patches.Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor='lightgray', facecolor='lightgray', linewidth=1))
+    ax3.add_patch(Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor='lightgray', facecolor='lightgray', linewidth=1))
     for n_dec in range(num_dec):
         ax3.plot(plot_t1, np.mean(perform_binwise[:,:,n_dec],axis=1), color=colors1[net_idx[n_dec]])
     ax3.plot(plot_t1, np.ones(plot_t1.shape[0]), '--', color='black')
@@ -542,7 +621,7 @@ def f_plot_one_shot_dec_iscat(perform_final, perform_binwise, perform_y_is_cat, 
             color1 = trial_colors[n_tt]
         else:
             color1 = trial_colors[n_tt,:]
-        ax1.add_patch(patches.Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor=color1, facecolor=color1, linewidth=1))
+        ax1.add_patch(Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor=color1, facecolor=color1, linewidth=1))
         #ax1.plot(plot_t1, y_is_ddfin[:,0])
         for n_dec in range(num_dec):
             # if num_cat > num_tt:
@@ -567,7 +646,7 @@ def f_plot_one_shot_dec_iscat(perform_final, perform_binwise, perform_y_is_cat, 
     
     plt.figure()
     ax3 = plt.subplot(1,1,1)
-    ax3.add_patch(patches.Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor='lightgray', facecolor='lightgray', linewidth=1))
+    ax3.add_patch(Rectangle((plot_t1[5], ylims[0]), 0.5, ylims[1]-ylims[0], edgecolor='lightgray', facecolor='lightgray', linewidth=1))
     for n_dec in range(num_dec):
         ax3.plot(plot_t1, np.mean(perform_binwise[:,:,n_dec],axis=1))
     ax3.plot(plot_t1, np.ones(plot_t1.shape[0]), '--', color='black')

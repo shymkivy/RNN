@@ -16,6 +16,8 @@ import matplotlib.pyplot as plt
 
 from f_RNN_utils import f_gen_oddball_seq, f_gen_input_output_from_seq, f_gen_cont_seq
 
+from f_RNN_chaotic import RNN_chaotic
+
 #%%
 
 def f_RNN_linear_train(rnn, loss, input_train, output_train, params):
@@ -341,7 +343,7 @@ def f_RNN_trial_ctx_train2(rnn, loss, stim_templates, params, rnn_out = {}):
     
     #optimizer = torch.optim.SGD(rnn.parameters(), lr=learning_rate) 
     optimizer = torch.optim.AdamW(rnn.parameters(), lr=learning_rate) 
-
+    
     # initialize 
     #rnn_out['loss'] = np.zeros((num_samp, num_rep))
     if 'loss' not in rnn_out.keys():
@@ -357,25 +359,20 @@ def f_RNN_trial_ctx_train2(rnn, loss, stim_templates, params, rnn_out = {}):
     
     start_time = time.time()
     
-    for n_samp in range(samp_start, num_samp):
+    n_samp = samp_start
+    
+    if params['cosine_anneal']:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_samp) # 
+        if n_samp:
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_samp, last_epoch = n_samp) # 
+        
+    while n_samp < num_samp:
          
         rate_start = rnn.init_rate(params['train_batch_size']).to(params['device'])
         
         # get sample
         
-        trials_train_oddball_freq, trials_train_oddball_ctx, _ = f_gen_oddball_seq(params['oddball_stim'], params['oddball_stim'], params['train_trials_in_sample'], params['dd_frac'], params['train_batch_size'], 1)
-
-        input_train_oddball, _ = f_gen_input_output_from_seq(trials_train_oddball_freq, stim_templates['freq_input'], stim_templates['freq_output'], params)
-        
-        if params['num_ctx'] == 1:
-            trials_train_oddball_ctx2 = (trials_train_oddball_ctx == 2).astype(int)
-        else:
-            trials_train_oddball_ctx2 = (trials_train_oddball_ctx).astype(int)
-        
-        _, target_train_oddball_ctx = f_gen_input_output_from_seq(trials_train_oddball_ctx2, stim_templates['freq_input'], stim_templates['freq_output'][:output_size,:,:output_size], params)
-        
-        input_sig = torch.tensor(input_train_oddball).float().to(params['device'])
-        target_ctx = torch.tensor(target_train_oddball_ctx).float().to(params['device'])
+        input_sig, target_ctx = f_RNN_trial_ctx_get_input(stim_templates, params, output_size)
         
         for n_rep in range(num_rep):
             
@@ -385,7 +382,7 @@ def f_RNN_trial_ctx_train2(rnn, loss, stim_templates, params, rnn_out = {}):
             
             target_ctx2 = (torch.argmax(target_ctx, dim =2) * torch.ones(T, batch_size).to(params['device'])).long()
             
-            loss2 = f_RNN_trial_ctx_get_loss(output_ctx, target_ctx2, loss, loss_strat)
+            loss2 = f_RNN_trial_ctx_get_loss(output_ctx, target_ctx2, loss, loss_strat, T, batch_size, output_size)
 
             # for nnnlosss
             #output_sm = rnn.softmax(output)        
@@ -393,6 +390,8 @@ def f_RNN_trial_ctx_train2(rnn, loss, stim_templates, params, rnn_out = {}):
             
             loss2.backward() # retain_graph=True
             optimizer.step()
+            if params['cosine_anneal']:
+                scheduler.step()
             
             loss_deet = np.zeros((params['num_ctx']+1));
             for n_targ in range(params['num_ctx']+1):
@@ -430,8 +429,25 @@ def f_RNN_trial_ctx_train2(rnn, loss, stim_templates, params, rnn_out = {}):
             
             if ((n_samp) % 10) == 0:
                 
-                print('sample %d%s, Loss %0.3f, Time %0.1fs; loss by tt %s' % (n_samp, rep_tag, loss2.item(), time.time() - start_time, ctx_tag))
-
+                print('sample %d%s, Loss %0.3f, Time %0.1fs; loss by tt %s; lr = %.2e' % (n_samp, rep_tag, loss2.item(), time.time() - start_time, ctx_tag, optimizer.param_groups[0]['lr']))
+        
+        n_samp+=1
+        
+        if n_samp >= num_samp:
+            rate_start = rnn.init_rate(params['train_batch_size']).to(params['device'])
+            
+            input_sig, target_ctx = f_RNN_trial_ctx_get_input(stim_templates, params, output_size)
+            
+            optimizer.zero_grad()
+            output_ctx, rate = rnn.forward_ctx(input_sig, rate_start)
+            target_ctx2 = (torch.argmax(target_ctx, dim =2) * torch.ones(T, batch_size).to(params['device'])).long()
+            loss2 = f_RNN_trial_ctx_get_loss(output_ctx, target_ctx2, loss, loss_strat, T, batch_size, output_size)
+            
+            if loss2 > np.mean(rnn_out['loss'][-max(round(len(rnn_out['loss'])/100), 0):]):
+                
+                params['train_num_samples'] += 1000
+                num_samp = params['train_num_samples']
+            
     print('Done')
     
     if params['plot_deets']:
@@ -467,7 +483,7 @@ def f_RNN_trial_ctx_train2(rnn, loss, stim_templates, params, rnn_out = {}):
     
     return rnn_out   
 
-def f_RNN_trial_ctx_get_loss(output_ctx, target_ctx2, loss, loss_strat):
+def f_RNN_trial_ctx_get_loss(output_ctx, target_ctx2, loss, loss_strat, T, batch_size, output_size):
     if loss_strat == 1:
         output_ctx3 = output_ctx.permute((1, 2, 0))
         target_ctx3 = target_ctx2.permute((1, 0))
@@ -494,6 +510,23 @@ def f_RNN_trial_ctx_get_loss(output_ctx, target_ctx2, loss, loss_strat):
         loss2 = sum(loss4)/batch_size
         
     return loss2
+
+def f_RNN_trial_ctx_get_input(stim_templates, params, output_size):
+    trials_train_oddball_freq, trials_train_oddball_ctx, _ = f_gen_oddball_seq(params['oddball_stim'], params['oddball_stim'], params['train_trials_in_sample'], params['dd_frac'], params['train_batch_size'], 1)
+
+    input_train_oddball, _ = f_gen_input_output_from_seq(trials_train_oddball_freq, stim_templates['freq_input'], stim_templates['freq_output'], params)
+    
+    if params['num_ctx'] == 1:
+        trials_train_oddball_ctx2 = (trials_train_oddball_ctx == 2).astype(int)
+    else:
+        trials_train_oddball_ctx2 = (trials_train_oddball_ctx).astype(int)
+    
+    _, target_train_oddball_ctx = f_gen_input_output_from_seq(trials_train_oddball_ctx2, stim_templates['freq_input'], stim_templates['freq_output'][:output_size,:,:output_size], params)
+    
+    input_sig = torch.tensor(input_train_oddball).float().to(params['device'])
+    target_ctx = torch.tensor(target_train_oddball_ctx).float().to(params['device'])
+    
+    return input_sig, target_ctx
 
 #%%
 
@@ -943,3 +976,87 @@ def f_gen_cont_dset(params, stim_templates, num_trials=100, num_runs=100, num_co
                 }
 
     return data_out
+
+#%%
+
+def f_RNN_load_multinet(flist_all, data_path, untrain_param_source, max_untrained = 10):
+    
+    rnn_all = []
+    params_all = []
+    net_idx = []
+    
+    for n_rnn1 in range(len(flist_all)):
+        
+        flist1 = flist_all[n_rnn1]
+        
+        rnn_all1 = []
+        params_all1 = []
+        net_idx1 = []
+        if untrain_param_source[n_rnn1]:
+            num_rnn = np.min([len(flist_all[untrain_param_source[n_rnn1-1]]), max_untrained])
+            list1 = np.random.choice(len(flist_all[untrain_param_source[n_rnn1-1]]), num_rnn, replace=False)
+        else:
+            num_rnn = len(flist1)
+
+        for n_rnn in range(num_rnn):
+            
+            if untrain_param_source[n_rnn1]:
+                params = params_all[untrain_param_source[n_rnn1-1]][list1[n_rnn]]
+            else:
+                params = np.load(data_path + flist1[n_rnn][:-4] + '_params.npy', allow_pickle=True).item()
+            
+            params['output_size'] = params['num_freq_stim'] + 1
+            params['output_size_ctx'] = params['num_ctx'] + 1
+            
+            if 'train_add_noise' not in params.keys():
+                params['train_add_noise'] = 0
+            
+            rnn = RNN_chaotic(params).to(params['device']) # params['input_size'], params['hidden_size'], params['num_freq_stim'] + 1, params['num_ctx'] + 1, params['dt']/params['tau'], params['train_add_noise'], activation=params['activation'])
+            rnn.init_weights(params['g'])
+            
+            if not untrain_param_source[n_rnn1]:
+                rnn.load_state_dict(torch.load(data_path + flist1[n_rnn]))
+            
+            rnn.cpu()
+            
+            rnn_all1.append(rnn)
+            params_all1.append(params)
+            net_idx1.append(n_rnn1)
+            
+        rnn_all.append(rnn_all1)
+        params_all.append(params_all1)
+        net_idx.append(net_idx1)
+    
+    return rnn_all, params_all, net_idx
+
+#%%
+
+def f_smooth_loss(loss_in, sm_bin = 1000):
+    #sm_bin = 1000#round(1/params['dt'])*50;
+    kernel = np.ones(sm_bin)/sm_bin
+    
+    numT, num_runs = loss_in.shape
+    
+    if sm_bin:
+        loss1_sm = np.zeros((numT-sm_bin+1, num_runs))
+        for n_run in range(num_runs):            
+            loss1_sm[:,n_run] = np.convolve(loss_in[:,n_run], kernel, mode='valid')
+    else:
+        loss1_sm = loss_in
+    loss_x_sm = np.arange(len(loss1_sm))+sm_bin/2
+    
+    return loss_x_sm, loss1_sm
+
+#%%
+
+def f_data_quality_check(data_in, data_tag = ''):
+    for n_tr in range(len(data_in)):
+        for n_rnn in range(len(data_in[n_tr])):
+            numnans = np.sum(np.isnan(data_in[n_tr][n_rnn]['rates']))
+            if numnans:
+                print('%s; train %d, rnn %d has %d nans' % (data_tag, n_tr, n_rnn, numnans))
+            mean_loss = np.mean(data_in[n_tr][n_rnn]['lossT'][-1000:,:])
+            if mean_loss > 1e2:
+                print('%s; train %d, rnn %d has high loss=%.1e' % (data_tag, n_tr, n_rnn, mean_loss))
+
+
